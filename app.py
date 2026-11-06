@@ -39,7 +39,7 @@ def init_db():
         )
     """)
     
-    # التحقق الآلي وإضافة عمود barcode إذا كان قاعدة البيانات قديمة
+    # التحقق الآلي وإضافة عمود barcode إذا كانت قاعدة البيانات القديمة لا تحتويه
     try:
         cursor.execute("SELECT barcode FROM products LIMIT 1")
     except sqlite3.OperationalError:
@@ -253,8 +253,8 @@ if menu == "📦 نقطة البيع (POS)":
                     if payment_method in ["كريدي (Credit)", "تقسيط (Split)"] and not customer_id:
                         str_lit.error("الرجاء اختيار الزبون لتسجيل الدين!")
                     else:
-                        paid_amt = total_amount if payment_method == "cash" else (0 if payment_method == "credit" else split_paid)
-                        credit_amt = 0 if payment_method == "cash" else (total_amount if payment_method == "credit" else total_amount - split_paid)
+                        paid_amt = total_amount if payment_method == "نقداً (Cash)" else (0 if payment_method == "كريدي (Credit)" else split_paid)
+                        credit_amt = 0 if payment_method == "نقداً (Cash)" else (total_amount if payment_method == "كريدي (Credit)" else total_amount - split_paid)
                         profit = total_amount - total_cost
                         
                         cursor.execute("SELECT COALESCE(MAX(id), 1000) FROM sales")
@@ -264,7 +264,7 @@ if menu == "📦 نقطة البيع (POS)":
                         cursor.execute("""
                             INSERT INTO sales (invoice_number, total_amount, total_cost, total_profit, payment_method, paid_amount, credit_amount, customer_id, customer_name, items_count, note)
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, (inv_num, total_amount, total_cost, profit, 'cash' if credit_amt == 0 else payment_method.lower(), paid_amt, credit_amt, customer_id, customer_name, len(str_lit.session_state.cart), note))
+                        """, (inv_num, total_amount, total_cost, profit, payment_method, paid_amt, credit_amt, customer_id, customer_name, len(str_lit.session_state.cart), note))
                         
                         sale_id = cursor.lastrowid
                         
@@ -403,4 +403,4 @@ elif menu == "📊 لوحة الأرباح والحسابات":
     total_prof = total_prof or 0.0
     total_cash = total_cash or 0.0
     
-    cursor.
+    c
