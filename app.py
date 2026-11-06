@@ -1,106 +1,62 @@
 import sqlite3
-import streamlit as str_lit
+import streamlit as st
 from datetime import datetime
 
-# --- إعداد الصفحة وتصميم الواجهة الكبيرة والمريحة ---
-str_lit.set_page_config(
-    page_title="تسيير محل المواد الغذائية (Alimentation Générale)",
+# --- إعداد الواجهة لتكون مريحة وسريعة في الهاتف ---
+st.set_page_config(
+    page_title="تسيير حانوتي (Alimentation Générale)",
     page_icon="🛒",
     layout="wide",
 )
 
-str_lit.markdown("""
+st.markdown("""
     <style>
     .main { direction: rtl; text-align: right; }
-    /* تكبير الأزرار لراحة اليد والسرعة القصوى */
-    .stButton>button { width: 100%; border-radius: 12px; font-weight: bold; font-size: 16px; height: 55px; }
-    .product-card { border: 2px solid #cbd5e1; padding: 14px; border-radius: 12px; margin-bottom: 10px; background: #ffffff; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    /* تكبير الأزرار لراحة اليد والسرعة القصوى تحت الضغط */
+    .stButton>button { width: 100%; border-radius: 12px; font-weight: bold; font-size: 16px; height: 55px; background-color: #f8fafc; border: 2px solid #cbd5e1; }
+    .stButton>button:hover { background-color: #e2e8f0; border-color: #94a3b8; }
+    .product-box { border: 2px solid #e2e8f0; padding: 12px; border-radius: 12px; margin-bottom: 8px; background: #ffffff; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
     </style>
 """, unsafe_allow_html=True)
 
-# --- إعداد وتحديث قاعدة البيانات المحلية SQLite تلقائياً ---
+# --- قاعدة البيانات المحلية الخفيفة SQLite ---
 def init_db():
     conn = sqlite3.connect("store.db", check_same_thread=False)
     cursor = conn.cursor()
     
-    # فحص جدول المنتجات القديم وتحديثه آلياً إن كان غير متوافق
-    cursor.execute("PRAGMA table_info(products)")
-    columns = [col[1] for col in cursor.fetchall()]
-    
-    expected_columns = ['id', 'name', 'brand', 'category', 'unit', 'cost_price', 'selling_price', 'stock_quantity', 'min_stock_alert', 'is_popular']
-    
-    if columns and not all(col in columns for col in expected_columns):
-        cursor.execute("DROP TABLE IF EXISTS products")
-    
+    # جدول المنتجات
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS products (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
-            brand TEXT DEFAULT '',
             category TEXT NOT NULL,
             unit TEXT DEFAULT 'وحدة',
             cost_price REAL NOT NULL,
             selling_price REAL NOT NULL,
-            stock_quantity REAL NOT NULL,
-            min_stock_alert REAL DEFAULT 10,
-            is_popular BOOLEAN DEFAULT 0
+            stock_quantity REAL NOT NULL
         )
     """)
     
+    # جدول الزبائن والديون (الكريدي)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS customers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             phone TEXT DEFAULT '',
             notes TEXT DEFAULT '',
-            total_debt REAL DEFAULT 0,
-            credit_limit REAL DEFAULT 15000,
-            last_transaction_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            total_debt REAL DEFAULT 0
         )
     """)
     
+    # جدول المبيعات الفواتير
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS sales (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             invoice_number TEXT NOT NULL,
             total_amount REAL NOT NULL,
-            total_cost REAL NOT NULL,
             total_profit REAL NOT NULL,
             payment_method TEXT NOT NULL,
-            paid_amount REAL NOT NULL,
-            credit_amount REAL DEFAULT 0,
-            customer_id INTEGER,
             customer_name TEXT,
-            items_count INTEGER NOT NULL,
-            note TEXT DEFAULT '',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS sale_items (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            sale_id INTEGER NOT NULL,
-            product_id INTEGER,
-            product_name TEXT NOT NULL,
-            unit TEXT NOT NULL,
-            quantity REAL NOT NULL,
-            unit_price REAL NOT NULL,
-            cost_price REAL NOT NULL,
-            subtotal REAL NOT NULL,
-            profit REAL NOT NULL
-        )
-    """)
-    
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS credit_transactions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            customer_id INTEGER NOT NULL,
-            sale_id INTEGER,
-            type TEXT NOT NULL,
-            amount REAL NOT NULL,
-            balance_after REAL NOT NULL,
-            note TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
@@ -114,292 +70,234 @@ cursor = conn.cursor()
 def format_da(amount):
     return f"{amount:,.2f}".replace(",", " ") + " دج"
 
-def format_centimes(amount):
-    if not amount or amount <= 0:
-        return "0 سنتيم"
-    centimes = amount * 100
-    if centimes >= 1000000:
-        return f"{centimes/1000000:.1f} ملايين"
-    elif centimes >= 10000:
-        return f"{centimes/10000:.0f} آلاف دج"
-    return f"{centimes:.0f} سنتيم"
+# القائمة الجانبية للتنقل السريع
+st.sidebar.title("🛒 حانوتي الجزائري")
+menu = st.sidebar.radio("اختر مصلحة الحانوت:", ["⚡ نقطة البيع (الكاشير)", "📦 مخزون السلع", "📖 دفتر الكريدي", "📊 حسابات اليومية"])
 
-# القائمة الجانبية
-str_lit.sidebar.title("🛒 متجري (Alimentation)")
-menu = str_lit.sidebar.radio("اختر القسم:", ["📦 نقطة البيع السريعة (POS)", "📋 إدارة المخزون", "📖 دفتر الكريدي والديون", "📊 الحسابات والأرباح"])
-
-# ==================== 1. نقطة البيع السريعة (POS) ====================
-if menu == "📦 نقطة البيع السريعة (POS)":
-    str_lit.header("🛒 نقطة البيع السريعة (الكاشير الميداني)")
+# ==================== 1. نقطة البيع (الكاشير السريع) ====================
+if menu == "⚡ نقطة البيع (الكاشير)":
+    st.header("⚡ كاشير الميدان (بيع سريع وبدون تعقيد)")
     
-    cursor.execute("SELECT * FROM products ORDER BY is_popular DESC, name ASC")
+    cursor.execute("SELECT * FROM products ORDER BY name ASC")
     products = cursor.fetchall()
     
     if not products:
-        str_lit.warning("المخزون فارغ حالياً. أضف سلعاً من قسم إدارة المخزون للبدء بالبيع.")
+        st.warning("⚠️ المخزون فارغ! أضف بعض السلع من قسم 'مخزون السلع' لتبدأ البيع.")
     else:
-        if "cart" not in str_lit.session_state:
-            str_lit.session_state.cart = []
+        if "cart" not in st.session_state:
+            st.session_state.cart = []
 
-        col_search, col_qty = str_lit.columns([3, 1])
-        
-        with col_search:
-            search_query = str_lit.text_input("🔍 ابحث عن السلعة بالاسم بسرعة...", "")
-        
-        with col_qty:
-            current_target_qty = str_lit.number_input("الكمية المراد بيعها:", min_value=0.05, value=1.0, step=0.25)
+        # شريط التحكم في الكمية والبحث السريع
+        c_search, c_qty = st.columns([3, 1])
+        with c_search:
+            search_key = st.text_input("🔍 ابحث عن السلعة بالاسم بالخف...", "")
+        with c_qty:
+            item_qty = st.number_input("الكمية المراد بيعها:", min_value=0.25, value=1.0, step=0.25)
 
-        col_grid, col_cart = str_lit.columns([7, 5])
+        col_grid, col_cart = st.columns([7, 5])
         
         with col_grid:
-            str_lit.subheader("📦 اختر السلع بالضغط المباشر")
-            cols = str_lit.columns(2)
+            st.subheader("📦 السلع المتوفرة (اضغط للبيع)")
+            cols = st.columns(2)
             
-            filtered_prods = [p for p in products if search_query.lower() in p[1].lower()]
+            filtered_prods = [p for p in products if search_key.lower() in p[1].lower()]
             
             for idx, prod in enumerate(filtered_prods):
-                p_id, name, brand, cat, unit, cost, price, stock, alert, pop = prod
+                p_id, name, cat, unit, cost, price, stock = prod
                 with cols[idx % 2]:
-                    str_lit.markdown(f"""
-                        <div class="product-card">
+                    st.markdown(f"""
+                        <div class="product-box">
                             <b>{name}</b><br>
-                            <span style="color:gray; font-size:12px;">{brand} | {unit}</span><br>
-                            <b style="color:#047857; font-size:18px;">{price} دج</b><br>
-                            <span style="font-size:12px; color:{'red' if stock <= 0 else 'orange' if stock <= alert else 'blue'};">المخزون: {stock} {unit}</span>
+                            <span style="color:gray; font-size:12px;">{cat} | {unit}</span><br>
+                            <b style="color:#047857; font-size:17px;">{price} دج</b><br>
+                            <span style="font-size:12px; color:{'red' if stock <= 0 else 'blue'};">المخزون: {stock} {unit}</span>
                         </div>
                     """, unsafe_allow_html=True)
                     
-                    if str_lit.button(f"➕ بيع ({current_target_qty} {unit})", key=f"add_p_{p_id}"):
+                    if st.button(f"➕ بيع ({item_qty} {unit})", key=f"p_{p_id}"):
                         found = False
-                        for item in str_lit.session_state.cart:
+                        for item in st.session_state.cart:
                             if item["id"] == p_id:
-                                item["qty"] += current_target_qty
+                                item["qty"] += item_qty
                                 found = True
                                 break
                         if not found:
-                            str_lit.session_state.cart.append({
-                                "id": p_id, "name": name, "unit": unit, 
-                                "price": price, "cost": cost, "qty": current_target_qty
+                            st.session_state.cart.append({
+                                "id": p_id, "name": name, "price": price, "cost": cost, "qty": item_qty, "unit": unit
                             })
-                        str_lit.rerun()
+                        st.rerun()
 
         with col_cart:
-            str_lit.subheader("🛒 السلة الحالية (Panier)")
-            if not str_lit.session_state.cart:
-                str_lit.info("السلة فارغة. انقر على السلع لإضافتها هنا.")
+            st.subheader("🛒 السلة الحالية (Panier)")
+            if not st.session_state.cart:
+                st.info("السلة فارغة. انقر على السلع لتعبئتها.")
             else:
-                total_amount = 0
-                total_cost = 0
+                total_cart_amount = 0
+                total_cart_cost = 0
                 
-                for i, item in enumerate(str_lit.session_state.cart):
+                for i, item in enumerate(st.session_state.cart):
                     sub = item["qty"] * item["price"]
-                    total_amount += sub
-                    total_cost += item["qty"] * item["cost"]
+                    total_cart_amount += sub
+                    total_cart_cost += item["qty"] * item["cost"]
                     
-                    str_lit.markdown(f"**{item['name']}**")
-                    c_q1, c_q2, c_q3 = str_lit.columns([3, 2, 1])
-                    new_item_qty = c_q1.number_input(f"الكمية", min_value=0.05, value=float(item["qty"]), step=0.25, key=f"cart_q_{i}")
-                    str_lit.session_state.cart[i]["qty"] = new_item_qty
+                    st.markdown(f"**{item['name']}**")
+                    q_col1, q_col2, q_col3 = st.columns([3, 2, 1])
+                    new_q = q_col1.number_input("الكمية", min_value=0.25, value=float(item["qty"]), step=0.25, key=f"cq_{i}")
+                    st.session_state.cart[i]["qty"] = new_q
                     
-                    c_q2.write(f"<b>{sub:.2f} دج</b>", unsafe_allow_html=True)
-                    if c_q3.button("❌", key=f"rem_{i}"):
-                        str_lit.session_state.cart.pop(i)
-                        str_lit.rerun()
-                    str_lit.markdown("---")
+                    q_col2.write(f"**{sub:.2f} دج**")
+                    if q_col3.button("❌", key=f"del_{i}"):
+                        st.session_state.cart.pop(i)
+                        st.rerun()
+                    st.markdown("---")
                 
-                str_lit.markdown(f"### المجموع الإجمالي: {format_da(total_amount)}")
-                str_lit.text(f"المقابل بالسنتيم: {format_centimes(total_amount)}")
+                st.markdown(f"### المجموع: {format_da(total_cart_amount)}")
                 
-                payment_method = str_lit.selectbox("طريقة الدفع:", ["نقداً (Cash)", "كريدي (Credit)", "تقسيط (Split)"])
+                payment_type = st.selectbox("طريقة الخلاص:", ["نقداً (Cash)", "كريدي (Credit للزبون)"])
                 
-                customer_id = None
-                customer_name = "زبون عابر"
-                
-                if payment_method in ["كريدي (Credit)", "تقسيط (Split)"]:
-                    cursor.execute("SELECT id, name, total_debt FROM customers")
-                    customers_list = cursor.fetchall()
-                    cust_dict = {c[1]: c[0] for c in customers_list}
-                    
+                selected_cust = None
+                if payment_type == "كريدي (Credit للزبون)":
+                    cursor.execute("SELECT id, name FROM customers")
+                    custs = cursor.fetchall()
+                    cust_dict = {c[1]: c[0] for c in custs}
                     if cust_dict:
-                        selected_cust_name = str_lit.selectbox("اختر الزبون:", list(cust_dict.keys()))
-                        customer_id = cust_dict[selected_cust_name]
-                        customer_name = selected_cust_name
+                        chosen_c = st.selectbox("اختر الزبون:", list(cust_dict.keys()))
+                        selected_cust = chosen_c
                     else:
-                        str_lit.warning("لا يوجد زبائن مسجلون للكريدي.")
+                        st.warning("⚠️ لا يوجد زبائن مسجلون في دفتر الكريدي. أضف زبوناً أولاً.")
                 
-                split_paid = 0
-                if payment_method == "تقسيط (Split)":
-                    split_paid = str_lit.number_input("المبلغ المدفوع نقداً الآن:", min_value=0.0, max_value=float(total_amount), value=0.0)
-                
-                note = str_lit.text_input("ملاحظة الفاتورة:", "")
-                
-                if str_lit.button("✅ تأكيد البيع وختم الفاتورة", type="primary"):
-                    if payment_method in ["كريدي (Credit)", "تقسيط (Split)"] and not customer_id:
-                        str_lit.error("الرجاء اختيار الزبون لتسجيل الدين!")
+                if st.button("✅ إتمام عملية البيع", type="primary"):
+                    if payment_type == "كريدي (Credit للزبون)" and not selected_cust:
+                        st.error("الرجاء اختيار الزبون لتسجيل الدين!")
                     else:
-                        paid_amt = total_amount if payment_method == "نقداً (Cash)" else (0 if payment_method == "كريدي (Credit)" else split_paid)
-                        credit_amt = 0 if payment_method == "نقداً (Cash)" else (total_amount if payment_method == "كريدي (Credit)" else total_amount - split_paid)
-                        profit = total_amount - total_cost
+                        profit = total_cart_amount - total_cart_cost
+                        cursor.execute("SELECT COALESCE(MAX(id), 100) FROM sales")
+                        inv_no = f"FAC-{cursor.fetchone()[0] + 1}"
                         
-                        cursor.execute("SELECT COALESCE(MAX(id), 1000) FROM sales")
-                        max_id = cursor.fetchone()[0]
-                        inv_num = f"FAC-{max_id + 1001}"
-                        
+                        # تسجيل البيعة
                         cursor.execute("""
-                            INSERT INTO sales (invoice_number, total_amount, total_cost, total_profit, payment_method, paid_amount, credit_amount, customer_id, customer_name, items_count, note)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, (inv_num, total_amount, total_cost, profit, payment_method, paid_amt, credit_amt, customer_id, customer_name, len(str_lit.session_state.cart), note))
+                            INSERT INTO sales (invoice_number, total_amount, total_profit, payment_method, customer_name)
+                            VALUES (?, ?, ?, ?, ?)
+                        """, (inv_no, total_cart_amount, profit, payment_type, selected_cust if payment_type.startswith("كريدي") else "زبون عابر"))
                         
-                        sale_id = cursor.lastrowid
-                        
-                        for item in str_lit.session_state.cart:
-                            item_profit = (item["price"] - item["cost"]) * item["qty"]
-                            cursor.execute("""
-                                INSERT INTO sale_items (sale_id, product_id, product_name, unit, quantity, unit_price, cost_price, subtotal, profit)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            """, (sale_id, item["id"], item["name"], item["unit"], item["qty"], item["price"], item["cost"], item["qty"] * item["price"], item_profit))
-                            
+                        # إنقاص المخزون
+                        for item in st.session_state.cart:
                             cursor.execute("UPDATE products SET stock_quantity = stock_quantity - ? WHERE id = ?", (item["qty"], item["id"]))
                         
-                        if credit_amt > 0 and customer_id:
-                            cursor.execute("UPDATE customers SET total_debt = total_debt + ?, last_transaction_at = CURRENT_TIMESTAMP WHERE id = ?", (credit_amt, customer_id))
-                            cursor.execute("SELECT total_debt FROM customers WHERE id = ?", (customer_id,))
-                            new_debt = cursor.fetchone()[0]
+                        # تسجيل الدين إذا كان كريدي
+                        if payment_type.startswith("كريدي") and selected_cust:
+                            cursor.execute("UPDATE customers SET total_debt = total_debt + ? WHERE name = ?", (total_cart_amount, selected_cust))
                             
-                            cursor.execute("""
-                                INSERT INTO credit_transactions (customer_id, sale_id, type, amount, balance_after, note)
-                                VALUES (?, ?, 'debt', ?, ?, ?)
-                            """, (customer_id, sale_id, credit_amt, new_debt, f"فاتورة {inv_num}"))
-                        
                         conn.commit()
-                        str_lit.success(f"تم إتمام البيع بنجاح! رقم الفاتورة: {inv_num}")
-                        str_lit.session_state.cart = []
-                        str_lit.rerun()
+                        st.success(f"تمت البيعة بنجاح! الفاتورة: {inv_no}")
+                        st.session_state.cart = []
+                        st.rerun()
                 
-                if str_lit.button("🗑️ إفراغ السلة"):
-                    str_lit.session_state.cart = []
-                    str_lit.rerun()
+                if st.button("🗑️ إفراغ السلة"):
+                    st.session_state.cart = []
+                    st.rerun()
 
 # ==================== 2. إدارة المخزون ====================
-elif menu == "📋 إدارة المخزون":
-    str_lit.header("📋 إدارة المخزون والسلع")
+elif menu == "📦 مخزون السلع":
+    st.header("📦 تسيير المخزون (إضافة وتعديل السلع بالخف)")
     
-    with str_lit.expander("➕ إضافة منتج جديد بكل سهولة"):
-        with str_lit.form("new_product_form"):
-            p_name = str_lit.text_input("اسم السلعة (مثلاً: حليب كانديا، سكر...):")
-            p_brand = str_lit.text_input("الماركة أو التفاصيل:")
-            p_cat = str_lit.selectbox("الفئة:", ["مشروبات ومياه", "مواد غذائية عامة", "معجنات ومصبرات", "تنظيف ومنظفات", "ألبان وأجبان"])
-            p_unit = str_lit.selectbox("وحدة القياس:", ["وحدة", "لتر", "كلغ", "علبة"])
-            p_cost = str_lit.number_input("سعر الشراء (التكلفة للوحدة):", min_value=0.0, value=50.0)
-            p_sell = str_lit.number_input("سعر البيع للزبون:", min_value=0.0, value=60.0)
-            p_stock = str_lit.number_input("الكمية الحالية في المخزون:", min_value=0.0, value=20.0, step=1.0)
-            p_alert = str_lit.number_input("حد التنبيه عند قرب النفاد:", min_value=0.0, value=5.0)
-            p_pop = str_lit.checkbox("سلعة شائعة تظهر في واجهة الكاشير الأولى")
+    with st.expander("➕ إضافة سلعة جديدة للحانوت"):
+        with st.form("add_prod"):
+            p_name = st.text_input("اسم السلعة (مثلاً: حليب، لتر ماء، سكر...):")
+            p_cat = st.selectbox("الفئة:", ["مشروبات ومياه", "مواد غذائية", "ألبان وأجبان", "معجنات ومصبرات", "تنظيف"])
+            p_unit = st.selectbox("وحدة البيع:", ["وحدة", "لتر", "كلغ", "علبة"])
+            p_cost = st.number_input("سعر الشراء (التكلفة):", min_value=0.0, value=50.0)
+            p_sell = st.number_input("سعر البيع للزبون:", min_value=0.0, value=60.0)
+            p_stock = st.number_input("الكمية الحالية في الحانوت:", min_value=0.0, value=20.0, step=1.0)
             
-            if str_lit.form_submit_button("حفظ وإضافة السلعة"):
+            if st.form_submit_button("حفظ السلعة"):
                 cursor.execute("""
-                    INSERT INTO products (name, brand, category, unit, cost_price, selling_price, stock_quantity, min_stock_alert, is_popular)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (p_name, p_brand, p_cat, p_unit, p_cost, p_sell, p_stock, p_alert, p_pop))
+                    INSERT INTO products (name, category, unit, cost_price, selling_price, stock_quantity)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (p_name, p_cat, p_unit, p_cost, p_sell, p_stock))
                 conn.commit()
-                str_lit.success("تمت إضافة السلعة للمخزون بنجاح!")
-                str_lit.rerun()
+                st.success("تمت إضافة السلعة بنجاح!")
+                st.rerun()
 
     cursor.execute("SELECT * FROM products")
-    all_prods = cursor.fetchall()
-    str_lit.subheader(f"قائمة السلع المسجلة ({len(all_prods)})")
+    prods = cursor.fetchall()
+    st.subheader(f"السلع المسجلة في الحانوت ({len(prods)})")
     
-    for p in all_prods:
-        p_id, name, brand, cat, unit, cost, sell, stock, alert, pop = p
-        col1, col2, col3, col4, col5 = str_lit.columns([3, 2, 2, 2, 1])
-        col1.write(f"**{name}**<br><span style='font-size:11px; color:gray;'>{brand} | {cat}</span>", unsafe_allow_html=True)
-        col2.write(f"السعر: {sell} دج")
+    for p in prods:
+        p_id, name, cat, unit, cost, sell, stock = p
+        col1, col2, col3, col4, col5 = st.columns([3, 2, 2, 2, 1])
+        col1.write(f"**{name}**<br><span style='font-size:11px; color:gray;'>{cat}</span>", unsafe_allow_html=True)
+        col2.write(f"البيع: {sell} دج")
         col3.write(f"المخزون: {stock} {unit}")
         
-        if col4.button("➕ زيادة 10", key=f"restock_{p_id}"):
+        if col4.button("➕ زيادة 10", key=f"r_{p_id}"):
             cursor.execute("UPDATE products SET stock_quantity = stock_quantity + 10 WHERE id = ?", (p_id,))
             conn.commit()
-            str_lit.rerun()
-            
-        if col5.button("🗑️ حذف", key=f"del_p_{p_id}"):
+            st.rerun()
+        if col5.button("🗑️ حذف", key=f"d_{p_id}"):
             cursor.execute("DELETE FROM products WHERE id = ?", (p_id,))
             conn.commit()
-            str_lit.rerun()
+            st.rerun()
 
-# ==================== 3. دفتر الكريدي والديون ====================
-elif menu == "📖 دفتر الكريدي والديون":
-    str_lit.header("📖 دفتر الديون والزبائن (الكريدي)")
+# ==================== 3. دفتر الكريدي ====================
+elif menu == "📖 دفتر الكريدي":
+    st.header("📖 دفتر ديون الزباين (الكريدي)")
     
-    with str_lit.expander("➕ تسجيل زبون جديد للكريدي"):
-        with str_lit.form("new_cust_form"):
-            c_name = str_lit.text_input("اسم الزبون الكامل:")
-            c_phone = str_lit.text_input("رقم الهاتف:")
-            c_notes = str_lit.text_input("ملاحظات (عنوان الحي):")
-            c_debt = str_lit.number_input("دين سابق إن وجد:", min_value=0.0, value=0.0)
-            c_limit = str_lit.number_input("سقف الكريدي المسموح:", min_value=0.0, value=15000.0)
+    with st.expander("➕ تسجيل زبون جديد للكريدي"):
+        with st.form("add_cust"):
+            c_name = st.text_input("اسم الزبون الكامل:")
+            c_phone = st.text_input("رقم الهاتف:")
+            c_notes = st.text_input("ملاحظات (عنوان الحي):")
+            c_debt = st.number_input("دين سابق إن وجد:", min_value=0.0, value=0.0)
             
-            if str_lit.form_submit_button("حفظ الزبون"):
-                cursor.execute("""
-                    INSERT INTO customers (name, phone, notes, total_debt, credit_limit)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (c_name, c_phone, c_notes, c_debt, c_limit))
+            if st.form_submit_button("حفظ الزبون"):
+                cursor.execute("INSERT INTO customers (name, phone, notes, total_debt) VALUES (?, ?, ?, ?)", (c_name, c_phone, c_notes, c_debt))
                 conn.commit()
-                str_lit.success("تم تسجيل الزبون بنجاح!")
-                str_lit.rerun()
-                
+                st.success("تم تسجيل الزبون بنجاح!")
+                st.rerun()
+
     cursor.execute("SELECT * FROM customers ORDER BY total_debt DESC")
     customers = cursor.fetchall()
     
     for cust in customers:
-        c_id, c_name, c_phone, c_notes, total_debt, limit, last_tx = cust
-        with str_lit.container():
-            str_lit.markdown(f"""
-                <div style="border:1px solid #cbd5e1; padding:15px; border-radius:10px; margin-bottom:10px; background:#fff;">
-                    <h3>👤 {c_name} <span style="font-size:14px; color:red;">(الدين الحالي: {format_da(total_debt)})</span></h3>
-                    <p>الهاتف: {c_phone} | ملاحظات: {c_notes} | سقف الدين: {limit} دج</p>
-                </div>
-            """, unsafe_allow_html=True)
-            
-            c1, c2 = str_lit.columns(2)
-            with c1:
-                payment_amt = str_lit.number_input(f"تسديد مبلغ من الدين لـ {c_name}", min_value=0.0, max_value=float(total_debt) if total_debt > 0 else 0.0, key=f"pay_input_{c_id}")
-                if str_lit.button(f"تسجيل تسديد (Versement)", key=f"pay_btn_{c_id}") and payment_amt > 0:
-                    new_debt = total_debt - payment_amt
-                    cursor.execute("UPDATE customers SET total_debt = ?, last_transaction_at = CURRENT_TIMESTAMP WHERE id = ?", (new_debt, c_id))
-                    cursor.execute("""
-                        INSERT INTO credit_transactions (customer_id, type, amount, balance_after, note)
-                        VALUES (?, ?, 'payment', ?, ?, 'تسديد دين')
-                    """, (c_id, payment_amt, new_debt))
-                    conn.commit()
-                    str_lit.success("تم تسجيل التسديد بنجاح!")
-                    str_lit.rerun()
+        c_id, c_name, c_phone, c_notes, debt = cust
+        st.markdown(f"""
+            <div style="border:1px solid #cbd5e1; padding:12px; border-radius:10px; margin-bottom:8px; background:#fff;">
+                <h3>👤 {c_name} <span style="font-size:14px; color:red;">(الكريدي: {format_da(debt)})</span></h3>
+                <p>الهاتف: {c_phone} | ملاحظات: {c_notes}</p>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        pay_col1, pay_col2 = st.columns(2)
+        with pay_col1:
+            ver_amt = st.number_input(f"مبلغ التسديد لـ {c_name}", min_value=0.0, max_value=float(debt) if debt > 0 else 0.0, key=f"pay_{c_id}")
+            if st.button(f"تسجيل تسديد (Versement)", key=f"btn_pay_{c_id}") and ver_amt > 0:
+                new_debt = debt - ver_amt
+                cursor.execute("UPDATE customers SET total_debt = ? WHERE id = ?", (new_debt, c_id))
+                conn.commit()
+                st.success("تم تسجيل التسديد بنجاح!")
+                st.rerun()
 
-# ==================== 4. الحسابات والأرباح ====================
-elif menu == "📊 الحسابات والأرباح":
-    str_lit.header("📊 لوحة الأرباح والحسابات اليومية")
+# ==================== 4. حسابات اليومية ====================
+elif menu == "📊 حسابات اليومية":
+    st.header("📊 خلاصة الحسابات والأرباح")
     
-    cursor.execute("SELECT SUM(total_amount), SUM(total_profit), SUM(paid_amount) FROM sales")
-    total_rev, total_prof, total_cash = cursor.fetchone()
-    
+    cursor.execute("SELECT SUM(total_amount), SUM(total_profit) FROM sales")
+    total_rev, total_prof = cursor.fetchone()
     total_rev = total_rev or 0.0
     total_prof = total_prof or 0.0
-    total_cash = total_cash or 0.0
     
     cursor.execute("SELECT SUM(total_debt) FROM customers")
-    total_outstanding_debt = cursor.fetchone()[0] or 0.0
+    total_debts = cursor.fetchone()[0] or 0.0
     
-    col1, col2, col3, col4 = str_lit.columns(4)
-    col1.metric("إجمالي المبيعات", format_da(total_rev))
-    col2.metric("صافي الأرباح", format_da(total_prof))
-    col3.metric("الكاش المحصل بالدرج", format_da(total_cash))
-    col4.metric("إجمالي الديون (كريدي)", format_da(total_outstanding_debt))
+    c1, c2, c3 = st.columns(3)
+    c1.metric("إجمالي المبيعات", format_da(total_rev))
+    c2.metric("صافي الأرباح", format_da(total_prof))
+    c3.metric("ديون الزباين (الكريدي)", format_da(total_debts))
     
-    str_lit.subheader("📋 سجل الفواتير والمبيعات السابقة")
-    cursor.execute("SELECT invoice_number, total_amount, total_profit, payment_method, customer_name, created_at FROM sales ORDER BY id DESC")
-    sales_history = cursor.fetchall()
-    
-    for s in sales_history:
-        inv, amt, prof, method, cust_n, date = s
-        cust_str = f"الزبون: {cust_n}" if cust_n else "زبون عابر"
-        str_lit.write(f"📄 **{inv}** | المبلغ: **{format_da(amt)}** | الربح: +{format_da(prof)} | الطريقة: {method} | {cust_str} | التوقيت: {date}")
-    
+    st.subheader("📋 سجل المبيعات الأخيرة")
+    cursor.execute("SELECT invoice_number, total_amount, total_profit, payment_method, customer_name, created_at FROM sales ORDER BY id DESC LIMIT 20")
+    for s in cursor.fetchall():
+        inv, amt, prof, method, cust, date = s
+        st.write(f"📄 **{inv}** | المبلغ: **{format_da(amt)}** | الربح: +{format_da(prof)} | الطريقة: {method} ({cust}) | التوقيت: {date}")
+            
