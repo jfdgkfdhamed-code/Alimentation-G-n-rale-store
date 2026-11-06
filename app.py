@@ -27,11 +27,9 @@ def init_db():
     cursor.execute("PRAGMA table_info(products)")
     columns = [col[1] for col in cursor.fetchall()]
     
-    # إذا كان الجدول قديماً (يحتوي على الأعمدة القديمة أو عدد أعمدة مختلف)، نقوم بإعادة إنشائه بنظافة
     expected_columns = ['id', 'name', 'brand', 'category', 'unit', 'cost_price', 'selling_price', 'stock_quantity', 'min_stock_alert', 'is_popular']
     
     if columns and not all(col in columns for col in expected_columns):
-        # الاحتفاظ بنسخة احتياطية آمنة للجدول القديم إذا أردت، أو إعادة إنشائه مباشرة
         cursor.execute("DROP TABLE IF EXISTS products")
     
     cursor.execute("""
@@ -403,4 +401,5 @@ elif menu == "📊 الحسابات والأرباح":
     for s in sales_history:
         inv, amt, prof, method, cust_n, date = s
         cust_str = f"الزبون: {cust_n}" if cust_n else "زبون عابر"
-        str_lit.write(f"📄 **{inv}** | المبلغ: **{format_da(amt)}** | الربح: +{format_da(prof)} | الطريقة: {meth
+        str_lit.write(f"📄 **{inv}** | المبلغ: **{format_da(amt)}** | الربح: +{format_da(prof)} | الطريقة: {method} | {cust_str} | التوقيت: {date}")
+    
