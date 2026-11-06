@@ -19,11 +19,14 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# --- تصفية الذاكرة المؤقتة لتفادي أي تضارب قديم ---
+if "cart" in st.session_state and not isinstance(st.session_state.cart, list):
+    st.session_state.cart = []
+
 # --- قاعدة البيانات مع الحذف التلقائي للملف التالف لمنع أي خطأ نهائياً ---
 def init_db():
     db_path = "store.db"
     
-    # إذا كانت قاعدة البيانات القديمة موجودة وناقصة أعمدة، نحذفها جذرياً ونعيد بناءها
     if os.path.exists(db_path):
         try:
             temp_conn = sqlite3.connect(db_path)
@@ -32,7 +35,6 @@ def init_db():
             cols = [col[1] for col in temp_cursor.fetchall()]
             temp_conn.close()
             
-            # إذا لم تكن الأعمدة متطابقة تماماً 7 أعمدة، احذف الملف القديم فوراً
             expected_cols = ['id', 'name', 'category', 'unit', 'cost_price', 'selling_price', 'stock_quantity']
             if not cols or not all(c in cols for c in expected_cols):
                 os.remove(db_path)
@@ -93,7 +95,7 @@ menu = st.sidebar.radio("اختر مصلحة الحانوت:", ["⚡ نقطة ا
 if menu == "⚡ نقطة البيع (الكاشير)":
     st.header("⚡ كاشير الميدان (بيع سريع وبدون تعقيد)")
     
-    cursor.execute("SELECT * FROM products ORDER BY name ASC")
+    cursor.execute("SELECT id, name, category, unit, cost_price, selling_price, stock_quantity FROM products ORDER BY name ASC")
     products = cursor.fetchall()
     
     if not products:
@@ -230,7 +232,7 @@ elif menu == "📦 مخزون السلع":
                 st.success("تمت إضافة السلعة بنجاح!")
                 st.rerun()
 
-    cursor.execute("SELECT * FROM products")
+    cursor.execute("SELECT id, name, category, unit, cost_price, selling_price, stock_quantity FROM products")
     prods = cursor.fetchall()
     st.subheader(f"السلع المسجلة في الحانوت ({len(prods)})")
     
@@ -267,7 +269,7 @@ elif menu == "📖 دفتر الكريدي":
                 st.success("تم تسجيل الزبون بنجاح!")
                 st.rerun()
 
-    cursor.execute("SELECT * FROM customers ORDER BY total_debt DESC")
+    cursor.execute("SELECT id, name, phone, notes, total_debt FROM customers ORDER BY total_debt DESC")
     customers = cursor.fetchall()
     
     for cust in customers:
@@ -311,4 +313,4 @@ elif menu == "📊 حسابات اليومية":
     for s in cursor.fetchall():
         inv, amt, prof, method, cust, date = s
         st.write(f"📄 **{inv}** | المبلغ: **{format_da(amt)}** | الربح: +{format_da(prof)} | الطريقة: {method} ({cust}) | التوقيت: {date}")
-        
+    
