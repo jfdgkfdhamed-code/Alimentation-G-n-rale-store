@@ -19,12 +19,20 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- قاعدة البيانات المحلية الخفيفة SQLite ---
+# --- قاعدة البيانات المحلية الخفيفة SQLite مع التحديث الآلي ---
 def init_db():
     conn = sqlite3.connect("store.db", check_same_thread=False)
     cursor = conn.cursor()
     
-    # جدول المنتجات
+    # فحص أعمدة جدول المنتجات لضمان التوافق التام بدون أخطاء
+    cursor.execute("PRAGMA table_info(products)")
+    columns = [col[1] for col in cursor.fetchall()]
+    expected_cols = ['id', 'name', 'category', 'unit', 'cost_price', 'selling_price', 'stock_quantity']
+    
+    if columns and not all(col in columns for col in expected_cols):
+        cursor.execute("DROP TABLE IF EXISTS products")
+
+    # جدول المنتجات الجديد
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS products (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -300,4 +308,4 @@ elif menu == "📊 حسابات اليومية":
     for s in cursor.fetchall():
         inv, amt, prof, method, cust, date = s
         st.write(f"📄 **{inv}** | المبلغ: **{format_da(amt)}** | الربح: +{format_da(prof)} | الطريقة: {method} ({cust}) | التوقيت: {date}")
-            
+        
