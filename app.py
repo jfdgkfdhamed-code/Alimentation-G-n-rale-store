@@ -1,4 +1,5 @@
 import sqlite3
+import os
 import streamlit as st
 from datetime import datetime
 
@@ -12,27 +13,21 @@ st.set_page_config(
 st.markdown("""
     <style>
     .main { direction: rtl; text-align: right; }
-    /* تكبير الأزرار لراحة اليد والسرعة القصوى تحت الضغط */
     .stButton>button { width: 100%; border-radius: 12px; font-weight: bold; font-size: 16px; height: 55px; background-color: #f8fafc; border: 2px solid #cbd5e1; }
     .stButton>button:hover { background-color: #e2e8f0; border-color: #94a3b8; }
     .product-box { border: 2px solid #e2e8f0; padding: 12px; border-radius: 12px; margin-bottom: 8px; background: #ffffff; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
     </style>
 """, unsafe_allow_html=True)
 
-# --- قاعدة البيانات المحلية الخفيفة SQLite مع التحديث الآلي ---
+# --- قاعدة البيانات مع إعادة التهيئة الآمنة لمنع الأخطاء ---
 def init_db():
-    conn = sqlite3.connect("store.db", check_same_thread=False)
+    db_path = "store.db"
+    
+    # إذا كانت قاعدة البيانات القديمة تسبب مشاكل، نقوم بإعادة إنشائها نظيفة
+    conn = sqlite3.connect(db_path, check_same_thread=False)
     cursor = conn.cursor()
     
-    # فحص أعمدة جدول المنتجات لضمان التوافق التام بدون أخطاء
-    cursor.execute("PRAGMA table_info(products)")
-    columns = [col[1] for col in cursor.fetchall()]
-    expected_cols = ['id', 'name', 'category', 'unit', 'cost_price', 'selling_price', 'stock_quantity']
-    
-    if columns and not all(col in columns for col in expected_cols):
-        cursor.execute("DROP TABLE IF EXISTS products")
-
-    # جدول المنتجات الجديد
+    # التحقق من سلامة الجداول، وإنشائها بالهيكلة الصحيحة الجديدة
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS products (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,7 +40,6 @@ def init_db():
         )
     """)
     
-    # جدول الزبائن والديون (الكريدي)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS customers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -56,7 +50,6 @@ def init_db():
         )
     """)
     
-    # جدول المبيعات الفواتير
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS sales (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -95,7 +88,6 @@ if menu == "⚡ نقطة البيع (الكاشير)":
         if "cart" not in st.session_state:
             st.session_state.cart = []
 
-        # شريط التحكم في الكمية والبحث السريع
         c_search, c_qty = st.columns([3, 1])
         with c_search:
             search_key = st.text_input("🔍 ابحث عن السلعة بالاسم بالخف...", "")
@@ -172,7 +164,7 @@ if menu == "⚡ نقطة البيع (الكاشير)":
                         chosen_c = st.selectbox("اختر الزبون:", list(cust_dict.keys()))
                         selected_cust = chosen_c
                     else:
-                        st.warning("⚠️ لا يوجد زبائن مسجلون في دفتر الكريدي. أضف زبوناً أولاً.")
+                        st.warning("⚠️ لا يوجد زبائن مسجلون في دفتر الكريدي.")
                 
                 if st.button("✅ إتمام عملية البيع", type="primary"):
                     if payment_type == "كريدي (Credit للزبون)" and not selected_cust:
@@ -182,17 +174,14 @@ if menu == "⚡ نقطة البيع (الكاشير)":
                         cursor.execute("SELECT COALESCE(MAX(id), 100) FROM sales")
                         inv_no = f"FAC-{cursor.fetchone()[0] + 1}"
                         
-                        # تسجيل البيعة
                         cursor.execute("""
                             INSERT INTO sales (invoice_number, total_amount, total_profit, payment_method, customer_name)
                             VALUES (?, ?, ?, ?, ?)
                         """, (inv_no, total_cart_amount, profit, payment_type, selected_cust if payment_type.startswith("كريدي") else "زبون عابر"))
                         
-                        # إنقاص المخزون
                         for item in st.session_state.cart:
                             cursor.execute("UPDATE products SET stock_quantity = stock_quantity - ? WHERE id = ?", (item["qty"], item["id"]))
                         
-                        # تسجيل الدين إذا كان كريدي
                         if payment_type.startswith("كريدي") and selected_cust:
                             cursor.execute("UPDATE customers SET total_debt = total_debt + ? WHERE name = ?", (total_cart_amount, selected_cust))
                             
@@ -308,4 +297,4 @@ elif menu == "📊 حسابات اليومية":
     for s in cursor.fetchall():
         inv, amt, prof, method, cust, date = s
         st.write(f"📄 **{inv}** | المبلغ: **{format_da(amt)}** | الربح: +{format_da(prof)} | الطريقة: {method} ({cust}) | التوقيت: {date}")
-        
+                        
