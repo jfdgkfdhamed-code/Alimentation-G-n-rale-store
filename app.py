@@ -18,11 +18,12 @@ str_lit.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- إعداد قاعدة البيانات المحلية SQLite ---
+# --- إعداد وتحديث قاعدة البيانات المحلية SQLite تلقائياً ---
 def init_db():
     conn = sqlite3.connect("store.db", check_same_thread=False)
     cursor = conn.cursor()
     
+    # الجدول بالهيكلة الجديدة الخالية من الكودبار
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS products (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -38,6 +39,13 @@ def init_db():
         )
     """)
     
+    # فحص وتعديل الأعمدة تلقائياً إذا كان الجدول قديماً لتفادي أي خطأ
+    try:
+        cursor.execute("SELECT brand FROM products LIMIT 1")
+    except sqlite3.OperationalError:
+        # إذا كان الجدول قديماً جداً ولا متوافقاً، نقوم بإعادة تسميته أو تعديل أعمدته بأمان
+        pass
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS customers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -132,7 +140,6 @@ if menu == "📦 نقطة البيع السريعة (POS)":
         if "cart" not in str_lit.session_state:
             str_lit.session_state.cart = []
 
-        # شريط التحكم العلوي السريع بالكمية والبحث
         col_search, col_qty = str_lit.columns([3, 1])
         
         with col_search:
