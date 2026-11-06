@@ -17,7 +17,7 @@ str_lit.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- إعداد قاعدة البيانات المحلية SQLite ---
+# --- إعداد وتحديث قاعدة البيانات المحلية SQLite تلقائياً ---
 def init_db():
     conn = sqlite3.connect("store.db", check_same_thread=False)
     cursor = conn.cursor()
@@ -38,6 +38,13 @@ def init_db():
             is_popular BOOLEAN DEFAULT 0
         )
     """)
+    
+    # التحقق الآلي وإضافة عمود barcode إذا كان قاعدة البيانات قديمة
+    try:
+        cursor.execute("SELECT barcode FROM products LIMIT 1")
+    except sqlite3.OperationalError:
+        cursor.execute("ALTER TABLE products ADD COLUMN barcode TEXT DEFAULT ''")
+        conn.commit()
     
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS customers (
@@ -138,10 +145,8 @@ if menu == "📦 نقطة البيع (POS)":
             scan_or_search = str_lit.text_input("🔍 ابحث بالاسم أو أدخل/امسح الكودبار (Barcode)...", "")
         
         with col_qty:
-            # حقل مرن لتحديد الكمية المطلوبة بالكامل حسب رغبة البائع
             current_target_qty = str_lit.number_input("الكمية المراد بيعها:", min_value=0.05, value=1.0, step=0.25)
 
-        # التحقق التلقائي إذا تطابق الكودبار المدخل
         if scan_or_search:
             matched_by_barcode = [p for p in products if p[2] and p[2].strip() == scan_or_search.strip()]
             if matched_by_barcode:
@@ -305,8 +310,7 @@ elif menu == "📋 إدارة المخزون":
             p_weighted = str_lit.checkbox("سلعة تزن بالميزان؟")
             p_cost = str_lit.number_input("سعر الشراء (التكلفة):", min_value=0.0, value=50.0)
             p_sell = str_lit.number_input("سعر البيع للعميل:", min_value=0.0, value=60.0)
-            # تحديد الكمية بحرية تامة عند الإضافة للمخزون
-            p_stock = str_lit.number_input("الكمية الأولية في المخزون (اختر الكمية التي تريدها):", min_value=0.0, value=20.0, step=1.0)
+            p_stock = str_lit.number_input("الكمية الأولية في المخزون:", min_value=0.0, value=20.0, step=1.0)
             p_alert = str_lit.number_input("حد تنبيه انخفاض المخزون:", min_value=0.0, value=5.0)
             p_pop = str_lit.checkbox("سلعة شائعة (تظهر أولاً في الكاشير)")
             
@@ -337,6 +341,7 @@ elif menu == "📋 إدارة المخزون":
             
         if col5.button("🗑️ حذف", key=f"del_p_{p_id}"):
             cursor.execute("DELETE FROM products WHERE id = ?", (p_id,))
+            conn.commit()
             str_lit.rerun()
 
 # ==================== 3. دفتر الكريدي والديون ====================
@@ -398,7 +403,4 @@ elif menu == "📊 لوحة الأرباح والحسابات":
     total_prof = total_prof or 0.0
     total_cash = total_cash or 0.0
     
-    cursor.execute("SELECT SUM(total_debt) FROM customers")
-    total_outstanding_debt = cursor.fetchone()[0] or 0.0
-    
-    col1, co
+    cursor.
