@@ -11,7 +11,6 @@ st.set_page_config(
 
 # --- التهيئة وحفظ الحالة (Session State) ---
 if "products" not in st.session_state:
-  # منتجات تجريبية أولية حقيقية للمساعدة
   st.session_state.products = [
       {
           "id": 1,
@@ -167,8 +166,8 @@ with tab_pos:
           or search_q.lower() in p["brand"].lower()
       ]
 
-    # عرض البطائط (Grid)
-    cols = st.cols(3)
+    # عرض البطائط (Grid) باستخدام st.columns الصحيحة
+    cols = st.columns(3)
     for i, p in enumerate(prods):
       with cols[i % 3]:
         with st.container(border=True):
@@ -177,7 +176,6 @@ with tab_pos:
           st.markdown(f"#### 💰 {format_da(p['price'])} دج")
 
           if st.button("➕ أضف", key=f"p_add_{p['id']}"):
-            # إضافة للسلة أو زيادة الكمية مباشرة
             found = False
             for item in st.session_state.cart:
               if item["id"] == p["id"]:
@@ -216,7 +214,6 @@ with tab_pos:
           with c1:
             st.caption(f"{format_da(item['price'])} دج")
           with c2:
-            # أزرار سريعة للتحكم في الكمية بدون أخطاء
             if st.button("➖", key=f"m_{idx}"):
               step = 0.25 if item["is_weighted"] else 1.0
               if item["qty"] > step:
@@ -245,7 +242,6 @@ with tab_pos:
           unsafe_allow_html=True,
       )
 
-      # خيارات الدفع وحاسبة الباقي (الخردة)
       pay_type = st.radio(
           "طريقة الدفع", ["نقداً (Cash)", "كريدي (Credit)"], horizontal=True
       )
@@ -259,7 +255,6 @@ with tab_pos:
           chosen_c = st.selectbox("اختر الزبون", list(c_dict.keys()))
           cust_id = c_dict[chosen_c]
 
-      # حاسبة الخردة والباقي للزبون النقدي
       change_due = 0.0
       if pay_type == "نقداً (Cash)":
         given_cash = st.number_input(
@@ -294,13 +289,11 @@ with tab_pos:
             "date": datetime.datetime.now().strftime("%H:%M - %Y/%m/%d"),
         }
 
-        # خصم المخزون تلقائياً
         for ci in st.session_state.cart:
           for pr in st.session_state.products:
             if pr["id"] == ci["id"]:
               pr["stock"] = max(0.0, pr["stock"] - ci["qty"])
 
-        # تسجيل الدين إذا كان كريدي
         if pay_type == "كريدي (Credit)" and cust_id:
           for cu in st.session_state.customers:
             if cu["id"] == cust_id:
@@ -341,7 +334,9 @@ with tab_inventory:
       is_w = st.checkbox("تُباع بالوزن الجزئي (0.5كغ، 0.25كغ...)")
       cost_p = st.number_input("سعر الشراء (دج)", min_value=0.0, value=0.0)
       sell_p = st.number_input("سعر البيع (دج)", min_value=0.0, value=0.0)
-      stk_qty = st.number_input("الكمية الأولية في المخزون", min_value=0.0, value=10.0)
+      stk_qty = st.number_input(
+          "الكمية الأولية في المخزون", min_value=0.0, value=10.0
+      )
 
       if st.form_submit_button("💾 حفظ السلعة"):
         if nm.strip():
@@ -362,12 +357,14 @@ with tab_inventory:
           st.error("أدخل اسم السلعة من فضلك.")
 
   st.divider()
-  # عرض السلع الحالية مع زر تموين سريع
   for pr in st.session_state.products:
     c1, c2, c3, c4 = st.columns([3, 2, 2, 2])
     with c1:
       st.markdown(f"**{pr['name']}** ({pr['brand']})")
-      st.caption(f"البيع: {format_da(pr['price'])} دج | الشراء: {format_da(pr['cost'])} دج")
+      st.caption(
+          f"البيع: {format_da(pr['price'])} دج | الشراء:"
+          f" {format_da(pr['cost'])} دج"
+      )
     with c2:
       st.markdown(f"المخزون: **{pr['stock']} {pr['unit']}**")
     with c3:
@@ -469,5 +466,4 @@ with tab_dashboard:
           st.markdown(
               f"- {si['name']} ({si['qty']} {si['unit']}) : "
               f"{format_da(si['qty'] * si['price'])} دج"
-          )
-          
+      )
