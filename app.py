@@ -2,7 +2,7 @@ import sqlite3
 import streamlit as str_lit
 from datetime import datetime
 
-# --- إعداد الصفحة والتصميم ---
+# --- إعداد الصفحة وتصميم الواجهة الكبيرة والمريحة ---
 str_lit.set_page_config(
     page_title="تسيير محل المواد الغذائية (Alimentation Générale)",
     page_icon="🛒",
@@ -12,12 +12,13 @@ str_lit.set_page_config(
 str_lit.markdown("""
     <style>
     .main { direction: rtl; text-align: right; }
-    .stButton>button { width: 100%; border-radius: 12px; font-weight: bold; font-size: 16px; height: 50px; }
-    .product-card { border: 2px solid #e2e8f0; padding: 12px; border-radius: 12px; margin-bottom: 10px; background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+    /* تكبير الأزرار لراحة اليد والسرعة القصوى */
+    .stButton>button { width: 100%; border-radius: 12px; font-weight: bold; font-size: 16px; height: 55px; }
+    .product-card { border: 2px solid #cbd5e1; padding: 14px; border-radius: 12px; margin-bottom: 10px; background: #ffffff; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
     </style>
 """, unsafe_allow_html=True)
 
-# --- إعداد وتحديث قاعدة البيانات المحلية SQLite تلقائياً ---
+# --- إعداد قاعدة البيانات المحلية SQLite ---
 def init_db():
     conn = sqlite3.connect("store.db", check_same_thread=False)
     cursor = conn.cursor()
@@ -26,11 +27,9 @@ def init_db():
         CREATE TABLE IF NOT EXISTS products (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
-            barcode TEXT DEFAULT '',
             brand TEXT DEFAULT '',
             category TEXT NOT NULL,
             unit TEXT DEFAULT 'وحدة',
-            is_weighted BOOLEAN DEFAULT 0,
             cost_price REAL NOT NULL,
             selling_price REAL NOT NULL,
             stock_quantity REAL NOT NULL,
@@ -38,13 +37,6 @@ def init_db():
             is_popular BOOLEAN DEFAULT 0
         )
     """)
-    
-    # التحقق الآلي وإضافة عمود barcode إذا كانت قاعدة البيانات القديمة لا تحتويه
-    try:
-        cursor.execute("SELECT barcode FROM products LIMIT 1")
-    except sqlite3.OperationalError:
-        cursor.execute("ALTER TABLE products ADD COLUMN barcode TEXT DEFAULT ''")
-        conn.commit()
     
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS customers (
@@ -123,69 +115,53 @@ def format_centimes(amount):
         return f"{centimes/10000:.0f} آلاف دج"
     return f"{centimes:.0f} سنتيم"
 
-str_lit.sidebar.title("🛒 نظام تسيير المحل")
-menu = str_lit.sidebar.radio("اختر القسم:", ["📦 نقطة البيع (POS)", "📋 إدارة المخزون", " دفتر الكريدي والديون", "📊 لوحة الأرباح والحسابات"])
+# القائمة الجانبية
+str_lit.sidebar.title("🛒 متجري (Alimentation)")
+menu = str_lit.sidebar.radio("اختر القسم:", ["📦 نقطة البيع السريعة (POS)", "📋 إدارة المخزون", "📖 دفتر الكريدي والديون", "📊 الحسابات والأرباح"])
 
-# ==================== 1. نقطة البيع (POS) ====================
-if menu == "📦 نقطة البيع (POS)":
-    str_lit.header("🛒 نقطة البيع السريعة (الكاشير)")
+# ==================== 1. نقطة البيع السريعة (POS) ====================
+if menu == "📦 نقطة البيع السريعة (POS)":
+    str_lit.header("🛒 نقطة البيع السريعة (الكاشير الميداني)")
     
     cursor.execute("SELECT * FROM products ORDER BY is_popular DESC, name ASC")
     products = cursor.fetchall()
     
     if not products:
-        str_lit.warning("المخزون فارغ حالياً. أضف سلعاً من قسم إدارة المخزون.")
+        str_lit.warning("المخزون فارغ حالياً. أضف سلعاً من قسم إدارة المخزون للبدء بالبيع.")
     else:
         if "cart" not in str_lit.session_state:
             str_lit.session_state.cart = []
 
+        # شريط التحكم العلوي السريع بالكمية والبحث
         col_search, col_qty = str_lit.columns([3, 1])
         
         with col_search:
-            scan_or_search = str_lit.text_input("🔍 ابحث بالاسم أو أدخل/امسح الكودبار (Barcode)...", "")
+            search_query = str_lit.text_input("🔍 ابحث عن السلعة بالاسم بسرعة...", "")
         
         with col_qty:
             current_target_qty = str_lit.number_input("الكمية المراد بيعها:", min_value=0.05, value=1.0, step=0.25)
 
-        if scan_or_search:
-            matched_by_barcode = [p for p in products if p[2] and p[2].strip() == scan_or_search.strip()]
-            if matched_by_barcode:
-                p_id, name, barcode, brand, cat, unit, weighted, cost, price, stock, alert, pop = matched_by_barcode[0]
-                
-                found_in_cart = False
-                for item in str_lit.session_state.cart:
-                    if item["id"] == p_id:
-                        item["qty"] += current_target_qty
-                        found_in_cart = True
-                        break
-                if not found_in_cart:
-                    str_lit.session_state.cart.append({
-                        "id": p_id, "name": name, "unit": unit, 
-                        "price": price, "cost": cost, "qty": current_target_qty, "is_weighted": weighted
-                    })
-                str_lit.success(f"تمت إضافة: {name} (الكمية: {current_target_qty} {unit})")
-
         col_grid, col_cart = str_lit.columns([7, 5])
         
         with col_grid:
-            str_lit.subheader("📦 اختيار السلع السريع")
+            str_lit.subheader("📦 اختر السلع بالضغط المباشر")
             cols = str_lit.columns(2)
             
-            filtered_prods = [p for p in products if scan_or_search.lower() in p[1].lower() or (p[2] and scan_or_search.lower() in p[2].lower())]
+            filtered_prods = [p for p in products if search_query.lower() in p[1].lower()]
             
             for idx, prod in enumerate(filtered_prods):
-                p_id, name, barcode, brand, cat, unit, weighted, cost, price, stock, alert, pop = prod
+                p_id, name, brand, cat, unit, cost, price, stock, alert, pop = prod
                 with cols[idx % 2]:
                     str_lit.markdown(f"""
                         <div class="product-card">
                             <b>{name}</b><br>
-                            <span style="color:gray; font-size:12px;">باركود: {barcode if barcode else 'بدون'} | {unit}</span><br>
+                            <span style="color:gray; font-size:12px;">{brand} | {unit}</span><br>
                             <b style="color:#047857; font-size:18px;">{price} دج</b><br>
                             <span style="font-size:12px; color:{'red' if stock <= 0 else 'orange' if stock <= alert else 'blue'};">المخزون: {stock} {unit}</span>
                         </div>
                     """, unsafe_allow_html=True)
                     
-                    if str_lit.button(f"➕ إضافة ({current_target_qty} {unit})", key=f"add_p_{p_id}"):
+                    if str_lit.button(f"➕ بيع ({current_target_qty} {unit})", key=f"add_p_{p_id}"):
                         found = False
                         for item in str_lit.session_state.cart:
                             if item["id"] == p_id:
@@ -195,14 +171,14 @@ if menu == "📦 نقطة البيع (POS)":
                         if not found:
                             str_lit.session_state.cart.append({
                                 "id": p_id, "name": name, "unit": unit, 
-                                "price": price, "cost": cost, "qty": current_target_qty, "is_weighted": weighted
+                                "price": price, "cost": cost, "qty": current_target_qty
                             })
                         str_lit.rerun()
 
         with col_cart:
             str_lit.subheader("🛒 السلة الحالية (Panier)")
             if not str_lit.session_state.cart:
-                str_lit.info("السلة فارغة. اختر السلع أو امسح الباركود.")
+                str_lit.info("السلة فارغة. انقر على السلع لإضافتها هنا.")
             else:
                 total_amount = 0
                 total_cost = 0
@@ -249,7 +225,7 @@ if menu == "📦 نقطة البيع (POS)":
                 
                 note = str_lit.text_input("ملاحظة الفاتورة:", "")
                 
-                if str_lit.button("✅ تأكيد البيع وطبع الفاتورة", type="primary"):
+                if str_lit.button("✅ تأكيد البيع وختم الفاتورة", type="primary"):
                     if payment_method in ["كريدي (Credit)", "تقسيط (Split)"] and not customer_id:
                         str_lit.error("الرجاء اختيار الزبون لتسجيل الدين!")
                     else:
@@ -300,27 +276,25 @@ if menu == "📦 نقطة البيع (POS)":
 elif menu == "📋 إدارة المخزون":
     str_lit.header("📋 إدارة المخزون والسلع")
     
-    with str_lit.expander("➕ إضافة منتج جديد (مع تحديد الكمية والكودبار بحرية)"):
+    with str_lit.expander("➕ إضافة منتج جديد بكل سهولة"):
         with str_lit.form("new_product_form"):
-            p_name = str_lit.text_input("اسم السلعة:")
-            p_barcode = str_lit.text_input("رقم الكودبار Barcode (اختياري):")
+            p_name = str_lit.text_input("اسم السلعة (مثلاً: حليب كانديا، سكر...):")
             p_brand = str_lit.text_input("الماركة أو التفاصيل:")
             p_cat = str_lit.selectbox("الفئة:", ["مشروبات ومياه", "مواد غذائية عامة", "معجنات ومصبرات", "تنظيف ومنظفات", "ألبان وأجبان"])
             p_unit = str_lit.selectbox("وحدة القياس:", ["وحدة", "لتر", "كلغ", "علبة"])
-            p_weighted = str_lit.checkbox("سلعة تزن بالميزان؟")
-            p_cost = str_lit.number_input("سعر الشراء (التكلفة):", min_value=0.0, value=50.0)
-            p_sell = str_lit.number_input("سعر البيع للعميل:", min_value=0.0, value=60.0)
-            p_stock = str_lit.number_input("الكمية الأولية في المخزون:", min_value=0.0, value=20.0, step=1.0)
-            p_alert = str_lit.number_input("حد تنبيه انخفاض المخزون:", min_value=0.0, value=5.0)
-            p_pop = str_lit.checkbox("سلعة شائعة (تظهر أولاً في الكاشير)")
+            p_cost = str_lit.number_input("سعر الشراء (التكلفة للوحدة):", min_value=0.0, value=50.0)
+            p_sell = str_lit.number_input("سعر البيع للزبون:", min_value=0.0, value=60.0)
+            p_stock = str_lit.number_input("الكمية الحالية في المخزون:", min_value=0.0, value=20.0, step=1.0)
+            p_alert = str_lit.number_input("حد التنبيه عند قرب النفاد:", min_value=0.0, value=5.0)
+            p_pop = str_lit.checkbox("سلعة شائعة تظهر في واجهة الكاشير الأولى")
             
-            if str_lit.form_submit_button("حفظ السلعة"):
+            if str_lit.form_submit_button("حفظ وإضافة السلعة"):
                 cursor.execute("""
-                    INSERT INTO products (name, barcode, brand, category, unit, is_weighted, cost_price, selling_price, stock_quantity, min_stock_alert, is_popular)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (p_name, p_barcode, p_brand, p_cat, p_unit, p_weighted, p_cost, p_sell, p_stock, p_alert, p_pop))
+                    INSERT INTO products (name, brand, category, unit, cost_price, selling_price, stock_quantity, min_stock_alert, is_popular)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (p_name, p_brand, p_cat, p_unit, p_cost, p_sell, p_stock, p_alert, p_pop))
                 conn.commit()
-                str_lit.success("تمت إضافة السلعة بالمخزون بالكمية المحددة بنجاح!")
+                str_lit.success("تمت إضافة السلعة للمخزون بنجاح!")
                 str_lit.rerun()
 
     cursor.execute("SELECT * FROM products")
@@ -328,9 +302,9 @@ elif menu == "📋 إدارة المخزون":
     str_lit.subheader(f"قائمة السلع المسجلة ({len(all_prods)})")
     
     for p in all_prods:
-        p_id, name, barcode, brand, cat, unit, weighted, cost, sell, stock, alert, pop = p
+        p_id, name, brand, cat, unit, cost, sell, stock, alert, pop = p
         col1, col2, col3, col4, col5 = str_lit.columns([3, 2, 2, 2, 1])
-        col1.write(f"**{name}**<br><span style='font-size:11px; color:gray;'>باركود: {barcode if barcode else 'بدون'}</span>", unsafe_allow_html=True)
+        col1.write(f"**{name}**<br><span style='font-size:11px; color:gray;'>{brand} | {cat}</span>", unsafe_allow_html=True)
         col2.write(f"السعر: {sell} دج")
         col3.write(f"المخزون: {stock} {unit}")
         
@@ -345,18 +319,18 @@ elif menu == "📋 إدارة المخزون":
             str_lit.rerun()
 
 # ==================== 3. دفتر الكريدي والديون ====================
-elif menu == " دفتر الكريدي والديون":
+elif menu == "📖 دفتر الكريدي والديون":
     str_lit.header("📖 دفتر الديون والزبائن (الكريدي)")
     
-    with str_lit.expander("➕ تسجيل زبون جديد"):
+    with str_lit.expander("➕ تسجيل زبون جديد للكريدي"):
         with str_lit.form("new_cust_form"):
             c_name = str_lit.text_input("اسم الزبون الكامل:")
             c_phone = str_lit.text_input("رقم الهاتف:")
-            c_notes = str_lit.text_input("ملاحظات (الحي، العنوان):")
-            c_debt = str_lit.number_input("دين ابتدائي إن وجد:", min_value=0.0, value=0.0)
+            c_notes = str_lit.text_input("ملاحظات (عنوان الحي):")
+            c_debt = str_lit.number_input("دين سابق إن وجد:", min_value=0.0, value=0.0)
             c_limit = str_lit.number_input("سقف الكريدي المسموح:", min_value=0.0, value=15000.0)
             
-            if str_lit.form_submit_button("إضافة الزبون"):
+            if str_lit.form_submit_button("حفظ الزبون"):
                 cursor.execute("""
                     INSERT INTO customers (name, phone, notes, total_debt, credit_limit)
                     VALUES (?, ?, ?, ?, ?)
@@ -372,9 +346,9 @@ elif menu == " دفتر الكريدي والديون":
         c_id, c_name, c_phone, c_notes, total_debt, limit, last_tx = cust
         with str_lit.container():
             str_lit.markdown(f"""
-                <div style="border:1px solid #ccc; padding:15px; border-radius:10px; margin-bottom:10px; background:#fff;">
+                <div style="border:1px solid #cbd5e1; padding:15px; border-radius:10px; margin-bottom:10px; background:#fff;">
                     <h3>👤 {c_name} <span style="font-size:14px; color:red;">(الدين الحالي: {format_da(total_debt)})</span></h3>
-                    <p>الهاتف: {c_phone} | ملاحظات: {c_notes} | السقف: {limit} دج</p>
+                    <p>الهاتف: {c_phone} | ملاحظات: {c_notes} | سقف الدين: {limit} دج</p>
                 </div>
             """, unsafe_allow_html=True)
             
@@ -392,9 +366,9 @@ elif menu == " دفتر الكريدي والديون":
                     str_lit.success("تم تسجيل التسديد بنجاح!")
                     str_lit.rerun()
 
-# ==================== 4. لوحة الأرباح والحسابات ====================
-elif menu == "📊 لوحة الأرباح والحسابات":
-    str_lit.header("📊 لوحة القيادة والحسابات اليومية")
+# ==================== 4. الحسابات والأرباح ====================
+elif menu == "📊 الحسابات والأرباح":
+    str_lit.header("📊 لوحة الأرباح والحسابات اليومية")
     
     cursor.execute("SELECT SUM(total_amount), SUM(total_profit), SUM(paid_amount) FROM sales")
     total_rev, total_prof, total_cash = cursor.fetchone()
@@ -403,4 +377,21 @@ elif menu == "📊 لوحة الأرباح والحسابات":
     total_prof = total_prof or 0.0
     total_cash = total_cash or 0.0
     
-    c
+    cursor.execute("SELECT SUM(total_debt) FROM customers")
+    total_outstanding_debt = cursor.fetchone()[0] or 0.0
+    
+    col1, col2, col3, col4 = str_lit.columns(4)
+    col1.metric("إجمالي المبيعات", format_da(total_rev))
+    col2.metric("صافي الأرباح", format_da(total_prof))
+    col3.metric("الكاش المحصل بالدرج", format_da(total_cash))
+    col4.metric("إجمالي الديون (كريدي)", format_da(total_outstanding_debt))
+    
+    str_lit.subheader("📋 سجل الفواتير والمبيعات السابقة")
+    cursor.execute("SELECT invoice_number, total_amount, total_profit, payment_method, customer_name, created_at FROM sales ORDER BY id DESC")
+    sales_history = cursor.fetchall()
+    
+    for s in sales_history:
+        inv, amt, prof, method, cust_n, date = s
+        cust_str = f"الزبون: {cust_n}" if cust_n else "زبون عابر"
+        str_lit.write(f"📄 **{inv}** | المبلغ: **{format_da(amt)}** | الربح: +{format_da(prof)} | الطريقة: {method} | {cust_str} | التوقيت: {date}")
+    
