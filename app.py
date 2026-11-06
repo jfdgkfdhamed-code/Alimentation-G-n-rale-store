@@ -19,15 +19,29 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- قاعدة البيانات مع إعادة التهيئة الآمنة لمنع الأخطاء ---
+# --- قاعدة البيانات مع الحذف التلقائي للملف التالف لمنع أي خطأ نهائياً ---
 def init_db():
     db_path = "store.db"
     
-    # إذا كانت قاعدة البيانات القديمة تسبب مشاكل، نقوم بإعادة إنشائها نظيفة
+    # إذا كانت قاعدة البيانات القديمة موجودة وناقصة أعمدة، نحذفها جذرياً ونعيد بناءها
+    if os.path.exists(db_path):
+        try:
+            temp_conn = sqlite3.connect(db_path)
+            temp_cursor = temp_conn.cursor()
+            temp_cursor.execute("PRAGMA table_info(products)")
+            cols = [col[1] for col in temp_cursor.fetchall()]
+            temp_conn.close()
+            
+            # إذا لم تكن الأعمدة متطابقة تماماً 7 أعمدة، احذف الملف القديم فوراً
+            expected_cols = ['id', 'name', 'category', 'unit', 'cost_price', 'selling_price', 'stock_quantity']
+            if not cols or not all(c in cols for c in expected_cols):
+                os.remove(db_path)
+        except Exception:
+            os.remove(db_path)
+
     conn = sqlite3.connect(db_path, check_same_thread=False)
     cursor = conn.cursor()
     
-    # التحقق من سلامة الجداول، وإنشائها بالهيكلة الصحيحة الجديدة
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS products (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -297,4 +311,4 @@ elif menu == "📊 حسابات اليومية":
     for s in cursor.fetchall():
         inv, amt, prof, method, cust, date = s
         st.write(f"📄 **{inv}** | المبلغ: **{format_da(amt)}** | الربح: +{format_da(prof)} | الطريقة: {method} ({cust}) | التوقيت: {date}")
-                        
+        
