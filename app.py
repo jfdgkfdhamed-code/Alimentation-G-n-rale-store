@@ -439,6 +439,6 @@ with tab_dashboard:
         for itm in sale["items"]:
           st.markdown(
               f"- {itm['name']} ({itm['qty']} {itm['unit']}) :"
-              f" {format_da(itm['qty'] * * itm['price'])} دج"
+              f" {format_da(itm['qty'] * itm['price'])} دج"
 )
     
